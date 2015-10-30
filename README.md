@@ -3,7 +3,7 @@ Bash script to convert Excellon drill files (.drl) to g-code (.ngc) files, so yo
 
 general usage:
 
-./drl2ngc \<input file\> \<diameter of your endmill\> \<lateral feed rate\> \<vertical feedrate\> \<rapid movement speed\> \<rapid movement height\> \<surface height (usually 0)\> \<drill depth\> \<output file\>
+./drl2ngc \<input file\> \<diameter of your endmill\> \<lateral feed rate\> \<vertical feedrate\> \<rapid movement speed\> \<rapid movement height\> \<drill depth\> \<output file\>
 
 (Note that all units are in inches or inches/minute, and absolute (ie drill depth is Z value to drill down to))
 
