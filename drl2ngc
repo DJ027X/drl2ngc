@@ -1,0 +1,168 @@
+#!/bin/bash
+#This program converts drill files to G-code files based on several parameters
+#TODO: move endmill to closest hole instead of following the order of the drill file
+
+if [[ $# != 8 ]]; then
+	echo "Correct usage: drl2ngc <drill file> <diameter of endmill> <lateral feed rate> <vertical feedrate> <rapid movement speed> <rapid movement height> <drill depth> <output file>
+(Note that all units are in inches or inches/minute, and absolute (ie drill depth is Z value to drill down to))"
+	exit 1
+fi
+
+#nomenclature definition mapping
+inputFile=$1
+endmillDiameter=$2
+lateralFeedRate=$3
+verticalFeedRate=$4
+rapidMovementSpeed=$5
+rapidMovementHeight=$6
+drillDepth=$7
+outputFile=$8
+
+#initializing some general variables
+totalLines=$(cat $inputFile | wc -l) #total lines in input file
+currentLine=1 #pointer to current line of input file
+toolDescriptionSection=-1 #pointer to the beginning of the section of the input file that describes tool widths
+currentTool=1 #keep track of which tool (hole size) we are working with
+workSection=-1 #pointer to the beginning of the section of the input file that describes the holes to drill
+numberOfTools=0 #total number of tools described
+numberOfHoles=0 #total number of holes to drill
+warnings="" #output warning messages after completion of the file
+
+#Some setup stuff: analyzing input file, preparing variables, etc.
+
+#warn if parameters are wonky
+if [[ 1 = $(echo "$rapidMovementHeight < $drillDepth" | bc) ]]; then
+	warnings+="Rapid movement height, $rapidMovementHeight is below drill depth, $drillDepth\n"
+fi
+if [[ 1 = $(echo "$rapidMovementSpeed < $lateralFeedRate" | bc) ]]; then
+	warnings+="Rapid movement speed, $rapidMovementSpeed is slower than milling speed, $lateralFeedRate\n"
+fi
+if [[ 0 = $(echo "$endmillDiameter > 0" | bc) ]]; then
+	warnings+="Endmill diameter, $endmillDiameter should be greater than zero\n"
+fi
+if [[ 0 = $(echo "$lateralFeedRate > 0" | bc) ]]; then
+	warnings+="Lateral feed rate, $lateralFeedRate should be greater than zero\n"
+fi
+if [[ 0 = $(echo "$verticalFeedRate > 0" | bc) ]]; then
+	warnings+="Vertical feed rate, $verticalFeedRate should be greater than zero\n"
+fi
+if [[ 0 = $(echo "$rapidMovementSpeed > 0" | bc) ]]; then
+	warnings+="Rapid movement speed, $rapidMovementSpeed should be greater than zero\n"
+fi
+#find tool description section, number of tools, work section, and number of holes.
+while [ $currentLine -le $totalLines ]; do
+	sedArg="$currentLine$()q;d"
+	if [[ $(sed $sedArg $inputFile) =~ T[0-9]+C[0-9]+ ]]; then
+		((numberOfTools+=1))
+		if [[ $toolDescriptionSection = -1 ]]; then
+			toolDescriptionSection=$currentLine
+		fi
+	fi
+
+	if [[ $(sed $sedArg $inputFile) =~ ^[tT]1$ ]]; then
+		workSection=$currentLine
+	fi
+
+	if [[ $(sed $sedArg $inputFile) =~ ^[xX][0-9] ]]; then
+		((numberOfHoles+=1))
+	fi
+	currentLine=$(($currentLine + 1))
+done
+
+echo $numberOfHoles holes
+
+#put the diameters of all tools into an array
+counter=0
+while [ $counter -lt $numberOfTools ]; do
+	sedArg="$(($toolDescriptionSection + $counter))$()q;d"
+	toolDiameter[$(($counter+1))]=$(sed $sedArg $inputFile | sed -e 's/[tT][0-9]\+[cC]//g')
+	((counter+=1))
+done
+
+#print tool sizes, for debugging/QA
+counter=1
+while [ $counter -le $numberOfTools ]; do
+	echo Tool $counter diameter: ${toolDiameter[$counter]} inches
+	((counter+=1))
+done
+
+#prep the output file
+echo > $outputFile
+echo -e "G20 ;set to inches mode, as opposed to mm" >> $outputFile
+echo -e "G90 ;absolute distance mode" >> $outputFile
+echo -e "G17 ;set helix axis of rotation to Z axis" >> $outputFile
+echo -e "G40 ;Cancel cutter radius compensation " >> $outputFile
+echo -e "G49 ;Cancel tool length offset" >> $outputFile
+echo -e "G80 ;Cancel motion mode" >> $outputFile
+echo -e "\n;raise tool to safety height\nF $verticalFeedRate\nG1 Z$rapidMovementHeight\nF $rapidMovementSpeed" >> $outputFile
+
+#main loop that converts holes to g-code, considering tool diameters/offsets
+#also keeps track of estimated time it will take to mill the object
+
+millTime=0 #estimated completion time
+oldx="null"
+oldy="null"
+
+counter=0
+while [ true ]; do
+	sedArg="$(($workSection + $counter))$()q;d"
+	line=$(sed $sedArg $inputFile)
+
+	#change tool if T# is read in
+	if [[ $line =~ ^[Tt][0-9]+$ ]]; then
+		currentTool=$(echo $line | sed -e 's/[tT]//')
+		if [[ $currentTool = 0 ]]; then
+			 break
+		fi
+		offset=$(echo "scale=6; (${toolDiameter[$currentTool]} - $endmillDiameter)/2" | bc)
+		if [[ 1 = $(echo "$offset<0" | bc) ]]; then
+			warnings+="Tool $currentTool is smaller than the specified endmill\n"
+		fi
+		echo tool: $currentTool
+		echo offset: $offset inches
+
+	#otherwise, mill a hole, if hole location is read in
+	elif [[ $line =~ ^[xX].*[yY].*$ ]]; then
+
+		#set x and y to hole center, while yOffset is the actual y value to move to, accounting for diameter of hole and endmill
+		x=$(echo $(echo $line | sed -e 's/^[xX]//') | sed -e 's/[yY].*//')
+		y=$(echo $line | sed -e 's/^[xX].*[yY]//')
+		yOffset=$(echo "scale=4; $y+$offset" | bc)
+
+		#move above hole and set lateral feed rate to helix down
+		echo -e "\nG1 X$x Y$yOffset\nF $lateralFeedRate" >> $outputFile
+
+		#spiral down to drill depth, first by calculating the required rotations to match lateral and vertical feedrates
+		#vertical speed rate will be equal to, or marginally slower that the set vertical feed rate
+		pValue=$(echo "scale=6; ($rapidMovementHeight - $drillDepth ) / ( $verticalFeedRate * ( 3.14159 * 2 * $offset / $lateralFeedRate ))" | bc)
+		pValue=$(echo "$pValue / 1" | bc)
+		echo -e "G2 X$x Y$yOffset Z$drillDepth I0 J-$offset P$pValue" >> $outputFile
+
+		#make a full circle at drill depth to guarantee proper drilling
+		echo -e "G2 X$x Y$yOffset Z$drillDepth I0 J-$offset P1" >> $outputFile
+
+		#return to rapid movement height and speed
+		echo -e "F $rapidMovementSpeed\nG1 Z$rapidMovementHeight" >> $outputFile
+
+		#calculate time this operation will take and add it to total mill time
+		if [[ $oldx != "null" && $oldy != "null" ]]; then
+			millTime=$(echo "scale=4; $millTime + sqrt((($x - $oldx)^2+($yOffset - $oldy)^2))/$rapidMovementSpeed" | bc)
+			millTime=$(echo "scale=4; $millTime + ($pValue + 1)*(3.14159 * 2 * $offset)/($lateralFeedRate)" | bc)
+			millTime=$(echo "scale=4; $millTime + ($rapidMovementHeight - $drillDepth)/$rapidMovementSpeed" | bc)
+		fi
+		oldx=$x
+		oldy=$yOffset
+	else
+		warnings+="Unrecognized line in work section of input file on line $currentLine:\n\t$line\n"
+	fi
+	((counter+=1))
+done
+
+echo -e "\nM5 ;Stop spindle\nM2 ;End program" >> $outputFile
+
+echo -e "-----\nDone\nCalculated completion time: $millTime minutes\n"
+
+if [[ $warnings != "" ]]; then
+	echo -----------Warnings!------------
+	echo -e $warnings
+fi
