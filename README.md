@@ -1,5 +1,5 @@
 # drl2ngc
-Bash script to convert Excellon drill files (.drl) to g-code (.ngc) files, so you can use a grbl (or equivalent) controlled endmill to drill any sized hole
+Bash script to convert Excellon drill files (.drl) to g-code (.ngc) files, so you can use a grbl (or equivalent) controlled endmill to drill any number of arbitrarily sized hole
 
 general usage:
 
