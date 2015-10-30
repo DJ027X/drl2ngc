@@ -1,9 +1,9 @@
 # drl2ngc
-Bash script to convert Excellon drill files (.drl) to g-code (.ngc) files, so you can use a grbl (or equivalent) controlled endmill to drill any sized hole
+Bash script to convert Excellon drill files (.drl) to g-code (.ngc) files, so you can use a grbl (or equivalent) controlled endmill to drill any number of arbitrarily sized hole
 
 general usage:
 
-./drl2ngc \<input file\> \<diameter of your endmill\> \<lateral feed rate\> \<vertical feedrate\> \<rapid movement speed\> \<rapid movement height\> \<surface height (usually 0)\> \<drill depth\> \<output file\>
+./drl2ngc \<input file\> \<diameter of your endmill\> \<lateral feed rate\> \<vertical feedrate\> \<rapid movement speed\> \<rapid movement height\> \<drill depth\> \<output file\>
 
 (Note that all units are in inches or inches/minute, and absolute (ie drill depth is Z value to drill down to))
 
