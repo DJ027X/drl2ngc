@@ -1,6 +1,8 @@
 # drl2ngc
 Bash script to convert Excellon drill files (.drl) to g-code (.ngc) files, so you can use a grbl (or equivalent) controlled endmill to drill any number of arbitrarily sized hole
 
+Note that this is a linux script, however it can be run on windows via cygwin, provided the 'bc' package is installed
+
 Correct usage: drl2ngc \<drill file\> \<diameter of endmill\> \<lateral feed rate\> \<vertical feedrate\> \<rapid movement speed\> \<rapid movement height\> \<drill depth\> \<output file\> [fast]
 Note that all units are in inches or inches/minute, and absolute; ie drill depth is Z value to drill down to)
 Appending 'fast' to the command will make the script execute faster, however results in a less efficient toolpath, as you can see by comparing the estimated completion times. The fast option is useful for quickly optimizing your parameters and observing the corresponding change in estimated completion time, to achieve an even more efficient toolpath
