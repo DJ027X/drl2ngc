@@ -110,7 +110,7 @@ echo -e "G17 ;set helix axis of rotation to Z axis" >> $outputFile
 echo -e "G40 ;Cancel cutter radius compensation " >> $outputFile
 echo -e "G49 ;Cancel tool length offset" >> $outputFile
 echo -e "G80 ;Cancel motion mode" >> $outputFile
-echo -e "\n;raise tool to safety height\nF $verticalFeedRate\nG1 Z$rapidMovementHeight\nF $rapidMovementSpeed" >> $outputFile
+echo -e "\n;raise tool to safety height\nF $verticalFeedRate\nG0 Z$rapidMovementHeight\nF $rapidMovementSpeed" >> $outputFile
 
 #main loop that converts holes to g-code, considering tool diameters/offsets
 #also keeps track of estimated time it will take to mill the object
@@ -158,16 +158,20 @@ while [ true ]; do
 	yOffset=$(echo "scale=4; $y+$offset" | bc)
 	
 	#move above hole and set lateral feed rate to helix down
-	echo -e "\nG1 X$x Y$yOffset\nF $lateralFeedRate" >> $outputFile
+	echo -e "\nG1 X$x Y$yOffset\nG1 Z0\nF $lateralFeedRate" >> $outputFile
 
 	#spiral down to drill depth, first by calculating the required rotations to match lateral and vertical feedrates
 	#vertical speed rate will be equal to, or marginally slower that the set vertical feed rate
 	pValue=$(echo "scale=6; ($rapidMovementHeight - $drillDepth ) / ( $verticalFeedRate * ( 3.14159 * 2 * $offset / $lateralFeedRate ))" | bc)
 	pValue=$(echo "$pValue / 1" | bc)
-	echo -e "G2 X$x Y$yOffset Z$drillDepth I0 J-$offset P$pValue" >> $outputFile
-	
+	counter=1
+	while [[ $counter -le $pValue ]]; do
+		tmpZ=$(echo "scale=4; $drillDepth / $pValue * $counter" | bc)
+		echo -e "G2 X$x Y$yOffset Z$tmpZ I0 J-$offset" >> $outputFile
+		((counter+=1))
+	done
 	#make a full circle at drill depth to guarantee proper drilling
-	echo -e "G2 X$x Y$yOffset Z$drillDepth I0 J-$offset P1" >> $outputFile
+	echo -e "G2 X$x Y$yOffset Z$drillDepth I0 J-$offset" >> $outputFile
 
 	#return to rapid movement height and speed
 	echo -e "F $rapidMovementSpeed\nG1 Z$rapidMovementHeight" >> $outputFile
